@@ -1,0 +1,111 @@
+<div id="chatbot-widget" style="border: 1px solid #ccc; padding: 10px; max-width: 400px;">
+  <div id="chatbot-messages" style="height: 300px; overflow-y: auto; border-bottom: 1px solid #ccc; margin-bottom: 10px; padding: 5px;"></div>
+  <div id="chatbot-controls">
+    <input type="text" id="chatbot-input" placeholder="Ask me something..." style="width: 75%; padding: 5px;" />
+    <button id="chatbot-submit" style="padding: 5px 10px;">Send</button>
+  </div>
+</div>
+<script>
+(function(){
+  // Replace this with your actual API endpoint URL (including protocol and domain)
+  const API_URL = "http://localhost:3000/api/chat";
+
+  // Maintain conversation history
+  let messages = [];
+
+  // Grab widget elements
+  const chatbotMessages = document.getElementById("chatbot-messages");
+  const chatbotInput = document.getElementById("chatbot-input");
+  const chatbotSubmit = document.getElementById("chatbot-submit");
+
+  // Append a message to the chat display
+  function appendMessage(role, text) {
+    const messageDiv = document.createElement("div");
+    messageDiv.style.marginBottom = "8px";
+    messageDiv.style.textAlign = role === "user" ? "right" : "left";
+    messageDiv.innerHTML = `<strong>${role === "user" ? "You" : "Assistant"}:</strong> ${text}`;
+    chatbotMessages.appendChild(messageDiv);
+    // Auto-scroll to the bottom
+    chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+  }
+
+  // Handle send button click
+  chatbotSubmit.addEventListener("click", function(){
+    const userText = chatbotInput.value.trim();
+    if (!userText) return;
+    
+    // Add the user message to the conversation and display it
+    messages.push({ role: "user", content: userText });
+    appendMessage("user", userText);
+    chatbotInput.value = "";
+    fetchAIResponse();
+  });
+
+  async function fetchAIResponse() {
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ messages: messages })
+      });
+
+      if (!response.body) {
+        console.error("No response body");
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let assistantText = "";
+
+      // Read the response stream incrementally
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value);
+        
+        // The API sends chunks prefixed with "data: " and separated by two newlines.
+        chunkValue.split("\n\n").forEach(line => {
+          if (line.startsWith("data: ")) {
+            const jsonStr = line.replace("data: ", "").trim();
+            if (jsonStr) {
+              try {
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.content) {
+                  assistantText += parsed.content;
+                  updateAssistantMessage(assistantText);
+                }
+              } catch (err) {
+                console.error("Error parsing chunk:", err);
+              }
+            }
+          }
+        });
+      }
+
+      // Add the final assistant message to the conversation history
+      messages.push({ role: "assistant", content: assistantText });
+    } catch (error) {
+      console.error("Error fetching AI response:", error);
+    }
+  }
+
+  // Helper to update the assistant's message incrementally in the UI
+  let assistantMessageElem;
+  function updateAssistantMessage(content) {
+    if (!assistantMessageElem) {
+      assistantMessageElem = document.createElement("div");
+      assistantMessageElem.style.marginBottom = "8px";
+      assistantMessageElem.style.textAlign = "left";
+      assistantMessageElem.innerHTML = `<strong>Assistant:</strong> ${content}`;
+      chatbotMessages.appendChild(assistantMessageElem);
+    } else {
+      assistantMessageElem.innerHTML = `<strong>Assistant:</strong> ${content}`;
+    }
+    chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+  }
+})();
+</script>
